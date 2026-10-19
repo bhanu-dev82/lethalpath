@@ -375,6 +375,9 @@ the same count.
   spec, not that it is accurate on real user setups.
 - **The label gold set is self-authored**: a regression check, not external ground truth.
 - **No CCH, no JavaScript UDF, no index.** We do not use or claim them on 6.0.2.
+- **Computer-use servers** (screen read plus click/type) hold the whole trifecta inside one server,
+  so name-based labels cannot separate input, private data and sink. The cheapest static cut there
+  is revoking the write side, which leaves the server useless; these need runtime rules (#3).
 
 ## Data
 
