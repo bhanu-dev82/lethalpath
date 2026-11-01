@@ -124,3 +124,65 @@ test("no max-flow row is an empty cut, not a crash", () => {
   const cut = cutFromMaxFlow([0], [1], dumbbell, undefined);
   assert.deepEqual(cut, { grants: [], edges: [], maxFlow: 0, side: "none" });
 });
+
+// Both canonical cuts have capacity 7 and two grants. Read loses 3 tasks;
+// write loses 2. Counting repeated resource edges instead makes write cost 4.
+const equalCapacityEdges: FlowEdge[] = [
+  { id: 0, from: 0, to: 4, capacity: 4, grant: "read.high", revocable: true, tasksLost: 3 },
+  { id: 1, from: 1, to: 5, capacity: 1, grant: "read.free", revocable: true, tasksLost: 0 },
+  { id: 2, from: 2, to: 5, capacity: 1, grant: "read.free", revocable: true, tasksLost: 0 },
+  { id: 3, from: 3, to: 5, capacity: 1, grant: "read.free", revocable: true, tasksLost: 0 },
+  { id: 4, from: 4, to: 6, capacity: 1_000_000, grant: null, revocable: false },
+  { id: 5, from: 5, to: 6, capacity: 1_000_000, grant: null, revocable: false },
+  { id: 6, from: 6, to: 7, capacity: 1_000_000, grant: null, revocable: false },
+  { id: 7, from: 6, to: 8, capacity: 1_000_000, grant: null, revocable: false },
+  { id: 8, from: 7, to: 9, capacity: 1, grant: "write.free", revocable: true, tasksLost: 0 },
+  { id: 9, from: 8, to: 10, capacity: 3, grant: "write.shared", revocable: true, tasksLost: 2 },
+  { id: 10, from: 8, to: 11, capacity: 3, grant: "write.shared", revocable: true, tasksLost: 2 },
+];
+const equalCapacityFlows = [4, 1, 1, 1, 4, 3, 1, 6, 1, 3, 3];
+
+test("equal-capacity cuts count task loss once per grant", () => {
+  const flows = new Map(equalCapacityFlows.map((value, id) => [id, value]));
+  const read = minCut([0, 1, 2, 3], equalCapacityEdges, flows, 7);
+  const write = sinkSideCut([9, 10, 11], equalCapacityEdges, flows, 7);
+  for (const cut of [read, write]) {
+    assert.equal(cut.edges.reduce((sum, edge) => sum + edge.capacity, 0), 7);
+    assert.equal(cut.grants.length, 2);
+    for (const edge of cut.edges) assert.equal(edge.capacity, 1 + (edge.tasksLost ?? 0));
+  }
+  assert.deepEqual(chooseCut(read, write).grants, ["write.free", "write.shared"]);
+  assert.equal(cutFromMaxFlow([0, 1, 2, 3], [9, 10, 11], equalCapacityEdges, {
+    maxFlow: 7,
+    edges: equalCapacityEdges.map(({ id }) => ({ id })),
+    edgeFlows: equalCapacityFlows,
+  }).side, "write");
+});
+
+test("grant task costs do not depend on edge ordering", () => {
+  const repeated: Cut = {
+    grants: ["read"], maxFlow: 1,
+    edges: [
+      { id: 0, from: 0, to: 1, capacity: 1, grant: "read", revocable: true, tasksLost: 1 },
+      { id: 1, from: 0, to: 2, capacity: 1, grant: "read", revocable: true, tasksLost: 3 },
+    ],
+  };
+  const other: Cut = {
+    grants: ["write"], maxFlow: 1,
+    edges: [{ id: 2, from: 2, to: 3, capacity: 1, grant: "write", revocable: true, tasksLost: 2 }],
+  };
+  assert.equal(chooseCut(repeated, other), other);
+  assert.equal(chooseCut({ ...repeated, edges: [...repeated.edges].reverse() }, other), other);
+});
+
+test("task loss ignores non-revocable and grant-less edges", () => {
+  const a: Cut = { grants: ["a"], maxFlow: 1, edges: [
+    { id: 0, from: 0, to: 1, capacity: 1, grant: "a", revocable: true },
+    { id: 1, from: 1, to: 2, capacity: 1, grant: null, revocable: false, tasksLost: 99 },
+    { id: 2, from: 2, to: 3, capacity: 1, grant: "structural", revocable: false, tasksLost: 99 },
+  ] };
+  const b: Cut = { grants: ["b"], maxFlow: 1, edges: [
+    { id: 3, from: 3, to: 4, capacity: 1, grant: "b", revocable: true, tasksLost: 1 },
+  ] };
+  assert.equal(chooseCut(a, b), a);
+});
