@@ -142,7 +142,15 @@ export function chooseCut(a: Cut, b: Cut): Cut {
   const actionable = (c: Cut) => (c.edges.length === 0 || c.grants.length > 0 ? 0 : 1);
   if (actionable(a) !== actionable(b)) return actionable(a) < actionable(b) ? a : b;
   if (a.grants.length !== b.grants.length) return a.grants.length < b.grants.length ? a : b;
-  const pain = (c: Cut) => c.edges.reduce((sum, e) => sum + (e.tasksLost ?? 0), 0);
+  const pain = (c: Cut) => {
+    const costs = new Map<string, number>();
+    for (const edge of c.edges) {
+      if (!edge.revocable || !edge.grant) continue;
+      // Ingest repeats a tool's task cost on each of its resource edges.
+      costs.set(edge.grant, Math.max(costs.get(edge.grant) ?? 0, edge.tasksLost ?? 0));
+    }
+    return [...costs.values()].reduce((sum, cost) => sum + cost, 0);
+  };
   if (pain(a) !== pain(b)) return pain(a) < pain(b) ? a : b;
   return b;
 }
